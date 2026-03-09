@@ -1,0 +1,37 @@
+menu "Project Configuration"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default "My_Home_WiFi"
+        help
+            Имя твоей Wi-Fi сети.
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        default "password123"
+        help
+            Пароль от Wi-Fi.
+
+    config GEMINI_API_KEY
+        string "Gemini API Key"
+        default "your_api_key_here"
+        help
+            Твой ключ от Google AI Studio.
+
+    config AUDIO_SAMPLE_RATE
+        int "Audio Sample Rate"
+        default 16000
+        help
+            Частота дискретизации (16000 или 44100).
+
+    menu "Hardware Pins"
+        config MIC_DIN_GPIO
+            int "Microphone DIN GPIO"
+            default 42
+        config SPK_DOUT_GPIO
+            int "Speaker DOUT GPIO"
+            default 39
+        # Можно добавить и остальные пины здесь
+    endmenu
+
+endmenu

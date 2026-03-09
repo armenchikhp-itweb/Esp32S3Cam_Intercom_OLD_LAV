@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <title>ESP32 Intercom</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #f0f0f0; padding: 20px; }
+        h1 { color: #333; }
+        button { 
+            padding: 20px; margin: 10px; font-size: 18px; width: 85%; 
+            border-radius: 12px; border: none; cursor: pointer; transition: 0.3s; 
+            font-weight: bold;
+        }
+        .off { background: #bbb; color: #444; }
+        .active { 
+            background: #4CAF50; color: white; 
+            box-shadow: 0 0 20px rgba(76,175,80,0.5); 
+        }
+        .stop { background: #f44336; color: white; }
+        .status { margin-top: 15px; font-size: 14px; color: #666; }
+    </style>
+</head>
+<body>
+    <h1>Audio Control</h1>
+    <button id="btnListen" class="off">СЛУШАТЬ ESP</button><br>
+    <button id="btnTalk" class="off">ГОВОРИТЬ В ESP</button><br>
+    <button id="btnStop" class="stop">ВЫКЛЮЧИТЬ ВСЁ</button>
+    <div id="status" class="status">Статус: Готов</div>
+
+<script>
+    let ws;
+    let audioCtx;
+    let processor;
+    let micStream;
+    let nextStartTime = 0;
+
+    const bListen = document.getElementById('btnListen');
+    const bTalk = document.getElementById('btnTalk');
+    const bStop = document.getElementById('btnStop');
+    const status = document.getElementById('status');
+
+    async function stopAll() {
+        status.innerText = "Статус: Остановка...";
+        if (ws) ws.close();
+        if (micStream) micStream.getTracks().forEach(t => t.stop());
+        if (processor) processor.disconnect();
+        if (audioCtx) await audioCtx.close();
+        
+        ws = null;
+        micStream = null;
+        processor = null;
+        audioCtx = null;
+        nextStartTime = 0;
+
+        bListen.className = 'off';
+        bTalk.className = 'off';
+        status.innerText = "Статус: Отключено";
+    }
+
+    function initWS() {
+        ws = new WebSocket(`ws://${location.host}/ws`);
+        ws.binaryType = 'arraybuffer';
+        
+        ws.onmessage = (e) => {
+            // Если мы сами говорим, не воспроизводим эхо от ESP
+            if (!audioCtx || bTalk.classList.contains('active')) return;
+            
+            const view = new DataView(e.data);
+            const f32 = new Float32Array(e.data.byteLength / 2);
+            for (let i = 0; i < f32.length; i++) {
+                f32[i] = view.getInt16(i * 2, true) / 32768;
+            }
+
+            const audioBuffer = audioCtx.createBuffer(1, f32.length, 16000);
+            audioBuffer.copyToChannel(f32, 0);
+            const source = audioCtx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioCtx.destination);
+
+            // Бесшовная склейка пакетов
+            let currentTime = audioCtx.currentTime;
+            if (nextStartTime < currentTime) nextStartTime = currentTime;
+            source.start(nextStartTime);
+            nextStartTime += audioBuffer.duration;
+        };
+
+        ws.onopen = () => { status.innerText = "Статус: Соединение установлено"; };
+        ws.onclose = () => { status.innerText = "Статус: Соединение закрыто"; };
+    }
+
+    bListen.onclick = async () => {
+        await stopAll();
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
+        initWS();
+        bListen.className = 'active';
+        status.innerText = "Статус: Слушаем ESP...";
+    };
+
+    bTalk.onclick = async () => {
+        await stopAll();
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
+        initWS();
+        bTalk.className = 'active';
+        status.innerText = "Статус: Подключение микрофона...";
+
+        try {
+            micStream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 }
+            });
+            const source = audioCtx.createMediaStreamSource(micStream);
+            // Размер 512 оптимален для ESP32
+            processor = audioCtx.createScriptProcessor(512, 1, 1);
+
+            source.connect(processor);
+            processor.connect(audioCtx.destination);
+
+            processor.onaudioprocess = (e) => {
+                if (ws && ws.readyState === 1) {
+                    const f32 = e.inputBuffer.getChannelData(0);
+                    const i16 = new Int16Array(f32.length);
+                    for (let i = 0; i < f32.length; i++) {
+                        // Ограничение амплитуды (clamping)
+                        let s = f32[i];
+                        if (s > 1) s = 1;
+                        if (s < -1) s = -1;
+                        i16[i] = s * 0x7FFF;
+                    }
+                    ws.send(i16.buffer);
+                }
+            };
+            status.innerText = "Статус: Передача голоса в ESP";
+        } catch (err) {
+            alert("Ошибка доступа к микрофону. Проверьте HTTPS или настройки Chrome.");
+            await stopAll();
+        }
+    };
+
+    bStop.onclick = stopAll;
+</script>
+</body>
+</html>
