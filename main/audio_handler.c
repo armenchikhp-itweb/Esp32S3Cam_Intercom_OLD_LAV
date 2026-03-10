@@ -27,6 +27,8 @@ void init_audio() {
 
     // Speaker config (I2S_NUM_1)
     i2s_chan_config_t s_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);
+	s_cfg.dma_desc_num = 16;      // Увеличиваем до 12
+	s_cfg.dma_frame_num = 512;    // Оставляем 512
     i2s_new_channel(&s_cfg, &tx_handle, NULL);
     i2s_std_config_t s_std = { 
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE),
